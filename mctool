@@ -1,0 +1,20 @@
+#!/usr/bin/env php
+<?php
+
+namespace Org\Snje\MCTool;
+
+use Org\Snje\MCTool;
+
+$root = __DIR__;
+require_once $root . '/src/Loader.php';
+
+if (PHP_SAPI !== 'cli') {
+    die('only can be used in cli mode.');
+}
+
+if (!extension_loaded("gmp")) {
+    die('requires the GMP extension for 64-bit number handling.');
+}
+
+$app = new App();
+$app->run($argc, $argv);
