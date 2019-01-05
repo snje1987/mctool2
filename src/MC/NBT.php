@@ -35,9 +35,76 @@ class NBT {
     const TAG_INT_ARRAY = 11;
     const TAG_LONG_ARRAY = 12;
 
-    public function print($fp, $node = null, $level = 0, $type = '') {
+    public static function get_node($root, $path, $node_type, $type) {
+        $node = $root;
+        foreach ($path as $v) {
+            if ($node_type === self::TAG_COMPOUND) {
+                $key = strval($v);
+                if (!isset($node[$key])) {
+                    return null;
+                }
+                $node_type = isset($node[$key]['type']) ? $node[$key]['type'] : null;
+                $node = $node[$key]['value'];
+            }
+            elseif ($node_type === self::TAG_LIST) {
+                if (!isset($node['value'])) {
+                    return null;
+                }
+                $node_type = isset($node['type']) ? $node['type'] : null;
+
+                $key = intval($v);
+                if (!isset($node['value'][$key])) {
+                    return null;
+                }
+                $node = $node['value'][$key];
+            }
+            else {
+                return null;
+            }
+        }
+
+        if ($node_type === null || $node_type !== $type) {
+            return null;
+        }
+
+        return $node;
+    }
+
+    public static function set_node(&$root, $path, $node_type, $value) {
+        $node = &$root;
+        foreach ($path as $v) {
+            if ($node_type === self::TAG_COMPOUND) {
+                $key = strval($v);
+                if (!isset($node[$key])) {
+                    return false;
+                }
+                $node_type = isset($node[$key]['type']) ? $node[$key]['type'] : null;
+                $node = &$node[$key]['value'];
+            }
+            elseif ($node_type === self::TAG_LIST) {
+                if (!isset($node['value'])) {
+                    return false;
+                }
+                $node_type = isset($node['type']) ? $node['type'] : null;
+
+                $key = intval($v);
+                if (!isset($node['value'][$key])) {
+                    return false;
+                }
+                $node = &$node['value'][$key];
+            }
+            else {
+                return false;
+            }
+        }
+
+        $node = $value;
+        return true;
+    }
+
+    public static function print_nbt($fp, $node = null, $level = 0, $type = '') {
         if ($node === null) {
-            $node = $this->root[''];
+            return;
         }
         $indent = '    ';
         $prefix = str_repeat($indent, $level);
@@ -59,7 +126,7 @@ class NBT {
                 foreach ($value as $sub_name => $sub_value) {
                     $sub_name = str_replace('"', '\\"', $sub_name);
                     fwrite($fp, "{$prefix}{$indent}\"{$sub_name}\" : ");
-                    $this->print($fp, $sub_value, $level + 1);
+                    self::print_nbt($fp, $sub_value, $level + 1);
                     if (++$k < $len) {
                         fwrite($fp, ",");
                     }
@@ -103,7 +170,7 @@ class NBT {
 
                 foreach ($value['value'] as $index => $sub_value) {
                     fwrite($fp, "{$prefix}{$indent}");
-                    $this->print($fp, $sub_value, $level + 1, $sub_type);
+                    self::print_nbt($fp, $sub_value, $level + 1, $sub_type);
                     if ($index < $len - 1) {
                         fwrite($fp, ",");
                     }
@@ -123,24 +190,17 @@ class NBT {
         }
     }
 
+    public function print($fp) {
+        self::print_nbt($fp, $this->root['']);
+    }
+
     public function load($fp) {
         $this->traverseTag($fp, $this->root);
     }
 
-    public function writeFile($filename, $wrapper = "compress.zlib://") {
-        if (is_string($wrapper)) {
-            $fp = fopen("{$wrapper}{$filename}", "wb");
-        }
-        elseif (is_null($wrapper) && is_resource($fp)) {
-            $fp = $filename;
-        }
-        else {
-            throw new Exception('输出文件不存在');
-        }
-        foreach ($this->root as $rootNum => $rootTag) {
-            if (!$this->writeTag($fp, $rootTag)) {
-                throw new Exception('写入文件失败');
-            }
+    public function save($fp) {
+        if (!$this->writeTag($fp, $this->root[''], '')) {
+            throw new Exception('写入文件失败');
         }
         return true;
     }
@@ -165,8 +225,8 @@ class NBT {
         }
     }
 
-    public function writeTag($fp, $tag) {
-        return $this->writeType($fp, self::TAG_BYTE, $tag["type"]) && $this->writeType($fp, self::TAG_STRING, $tag["name"]) && $this->writeType($fp, $tag["type"], $tag["value"]);
+    public function writeTag($fp, $tag, $name) {
+        return $this->writeType($fp, self::TAG_BYTE, $tag["type"]) && $this->writeType($fp, self::TAG_STRING, $name) && $this->writeType($fp, $tag["type"], $tag["value"]);
     }
 
     public function readType($fp, $tagType) {
@@ -190,9 +250,9 @@ class NBT {
                 list(, $firstHalf) = unpack("N", fread($fp, 4));
                 list(, $secondHalf) = unpack("N", fread($fp, 4));
                 $value = gmp_add($secondHalf, gmp_mul($firstHalf, "4294967296"));
-                if (gmp_cmp($value, gmp_pow(2, 63)) >= 0) {
-                    $value = gmp_sub($value, gmp_pow(2, 64));
-                }
+//                if (gmp_cmp($value, gmp_pow(2, 63)) >= 0) {
+//                    $value = gmp_sub($value, gmp_pow(2, 64));
+//                }
                 return gmp_strval($value);
             case self::TAG_FLOAT: // Floating point value (32 bit, big endian, IEEE 754-2008)
                 list(, $value) = (pack('d', 1) == "\77\360\0\0\0\0\0\0") ? unpack('f', fread($fp, 4)) : unpack('f', strrev(fread($fp, 4)));
@@ -260,8 +320,8 @@ class NBT {
                 } // Convert signed int to unsigned int
                 return is_int(fwrite($fp, pack("N", $value)));
             case self::TAG_LONG: // Signed long (64 bit, big endian)
-                $secondHalf = gmp_mod($value, 2147483647);
-                $firstHalf = gmp_sub($value, $secondHalf);
+                $secondHalf = gmp_mod($value, '4294967296');
+                $firstHalf = gmp_div_q($value, '4294967296', GMP_ROUND_MINUSINF);
                 return is_int(fwrite($fp, pack("N", gmp_intval($firstHalf)))) && is_int(fwrite($fp, pack("N", gmp_intval($secondHalf))));
             case self::TAG_FLOAT: // Floating point value (32 bit, big endian, IEEE 754-2008)
                 return is_int(fwrite($fp, (pack('d', 1) == "\77\360\0\0\0\0\0\0") ? pack('f', $value) : strrev(pack('f', $value))));
@@ -274,40 +334,44 @@ class NBT {
                 return $this->writeType($fp, self::TAG_SHORT, strlen($value)) && is_int(fwrite($fp, $value));
             case self::TAG_LIST: // List
                 if (!($this->writeType($fp, self::TAG_BYTE, $value["type"]) && $this->writeType($fp, self::TAG_INT, count($value["value"])))) {
-                    return false;
+                    throw new Exception('写入文件失败');
                 }
                 foreach ($value["value"] as $listItem) {
                     if (!$this->writeType($fp, $value["type"], $listItem)) {
-                        return false;
+                        throw new Exception('写入文件失败');
                     }
                 }
                 return true;
             case self::TAG_COMPOUND: // Compound
-                foreach ($value as $listItem) {
-                    if (!$this->writeTag($fp, $listItem)) {
-                        return false;
+                foreach ($value as $name => $listItem) {
+                    if (!$this->writeTag($fp, $listItem, $name)) {
+                        //print_r($listItem);
+                        throw new Exception('写入文件失败');
                     }
                 }
                 if (!is_int(fwrite($fp, "\0"))) {
-                    return false;
+                    throw new Exception('写入文件失败');
                 }
                 return true;
-            case self::TAG_INT_ARRAY: // Byte array
+            case self::TAG_INT_ARRAY: // Int array
+                //return $this->writeType($fp, self::TAG_INT, 0);
                 return $this->writeType($fp, self::TAG_INT, count($value)) && is_int(fwrite($fp, call_user_func_array("pack", array_merge(["N" . count($value)], $value))));
-            case self::TAG_LONG_ARRAY: // Byte array
+            case self::TAG_LONG_ARRAY: // Long array
+                //return $this->writeType($fp, self::TAG_INT, 0);
                 if (!$this->writeType($fp, self::TAG_INT, count($value))) {
-                    return false;
+                    throw new Exception('写入文件失败');
                 }
                 foreach ($value as $v) {
-                    $secondHalf = gmp_mod($v, 2147483647);
-                    $firstHalf = gmp_sub($v, $secondHalf);
+                    $secondHalf = gmp_mod($v, '4294967296');
+                    $firstHalf = gmp_div_q($v, '4294967296', GMP_ROUND_MINUSINF);
                     if (!(
                             is_int(fwrite($fp, pack("N", gmp_intval($firstHalf)))) &&
                             is_int(fwrite($fp, pack("N", gmp_intval($secondHalf))))
                             )) {
-                        return false;
+                        throw new Exception('写入文件失败');
                     }
                 }
+                return true;
         }
     }
 

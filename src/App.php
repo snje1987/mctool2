@@ -11,7 +11,7 @@ class App {
     protected $argv;
     protected $cmd = null;
     protected static $cmds = [
-        'nbt', 'copy', 'list', 'help'
+        'nbt', 'copy', 'list', 'help', 'reset_trade'
     ];
 
     public static function join_path($path1, $path2) {
@@ -49,7 +49,7 @@ class App {
             $this->do_job();
         }
         catch (Exception $ex) {
-            echo $ex->getMessage() . "\n";
+            echo $ex->getFile() . '[' . $ex->getLine() . ']: ' . $ex->getMessage() . "\n";
             $this->print_help();
         }
     }
@@ -108,19 +108,18 @@ CMD
             "src": "aaa/bbb", //path of the src region file's dir.
             "list": [ //villagers to be processed.
                 {
-                    "area": {
-                        "x": [-307, -177], //x range, in block, and all the villagers in the chunk will be processed.
-                        "z": [-481, -412] //z range, in block, and all the villagers in the chunk will be processed.
-                    },
-                    "career": [1], //optional, the IDs of villager's career.
-                    "custom_name": "trader", //optional, the CustomName of villagers to be processed.
-                    "do": [
+                    "area": [
                         {
-                            "no": 0, //trade number.
-                            "max_uses": 1000000, //name and value pairs.
-                            "uses": 0
+                            type": "include", //area type, can be include or exclude.
+                            "x": [-307, -177], //x range, in block, and all the villagers in the chunk will be processed.
+                            "z": [-481, -412] //z range, in block, and all the villagers in the chunk will be processed.
                         }
-                    ]
+                    ],
+                    "name": "trader", //optional, the CustomName of villagers to be processed.
+                    "do": {
+                        "max_uses": 1000000, //set maxUses.
+                        "uses": 0 //set uses.
+                    }
                 }
             ]
         }
@@ -256,8 +255,11 @@ DOC;
             case 'copy'://清理区块
                 $this->do_copy();
                 break;
-            case 'list'://列数已生成区块
+            case 'list'://列出已生成区块
                 $this->do_list();
+                break;
+            case 'reset_trade': //重置村民交易计数
+                $this->do_reset_trade();
                 break;
             case 'help':
                 $this->print_help();
@@ -397,6 +399,35 @@ DOC;
         $world->walk($region_list, [$world, 'copy_chunk'], [
             'dst' => $config['dst'],
         ]);
+    }
+
+    protected function do_reset_trade() {
+        $config = $this->load_cfg('config');
+        if ($config === null) {
+            throw new Exception('配置文件不合法');
+        }
+
+        if (!isset($config['src'])) {
+            throw new Exception('缺少必要项目');
+        }
+
+        if (!isset($config['list']) || empty($config['list'])) {
+            throw new Exception('未指定要进行的操作');
+        }
+
+        $list = $config['list'];
+
+        $world = new MC\World($config['src']);
+
+        foreach ($list as $task) {
+            if (empty($task['area'])) {
+                throw new Exception('缺少区域列表');
+            }
+            $region_list = new RegionList();
+            $region_list->add($task['area'], MC\Chunk::WIDTH);
+
+            $world->walk($region_list, [$world, 'reset_trade'], $task);
+        }
     }
 
     protected function do_list() {

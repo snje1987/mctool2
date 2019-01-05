@@ -23,10 +23,26 @@ class Chunk {
         $this->time = $time;
     }
 
+    public function set_nbt($nbt) {
+        if ($this->compress_type == 1) {//gzip
+            $this->zip_data = Region::encode_nbt($nbt, 'gzip');
+        }
+        elseif ($this->compress_type == 2) {
+            $this->zip_data = Region::encode_nbt($nbt, 'zlib');
+        }
+        else {
+            throw new Exception('数据不合法');
+        }
+    }
+
     public function get_data() {
         return [$this->time, $this->compress_type, $this->zip_data];
     }
 
+    /**
+     * @return MCTool\MC\NBT
+     * @throws Exception
+     */
     public function decode_nbt() {
         if ($this->compress_type == 1) {//gzip
             $nbt = Region::decode_nbt($this->zip_data, 'gzip');

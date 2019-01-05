@@ -114,7 +114,7 @@ class World {
     /**
      * @param \Org\Snje\MCTool\RegionList $region_list
      * @param string $filename
-     * @param mixed $args
+     * @param array $args
      * @param mixed $ret
      */
     public function copy_chunk($region_list, $filename, $args, $ret) {
@@ -129,6 +129,29 @@ class World {
         $from->walk($region_list, [$from, 'copy_chunk'], $to);
 
         $to->write();
+
+        unset($from);
+        unset($to);
+    }
+
+    /**
+     * @param \Org\Snje\MCTool\RegionList $region_list
+     * @param string $filename
+     * @param array $task
+     * @param mixed $ret
+     */
+    public function reset_trade($region_list, $filename, $task, $ret) {
+        echo $filename . "\n";
+
+        $src_file = MCTool\App::join_path($this->dir, $filename);
+
+        $from = new Region($src_file);
+
+        $from->walk($region_list, [$from, 'reset_trade'], $task);
+
+        $from->write();
+
+        unset($from);
     }
 
 }

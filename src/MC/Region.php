@@ -46,10 +46,22 @@ class Region {
         return $ret;
     }
 
-    public function get_chunk_coord($chunk_index) {
-        $x = MCTool\App::mod($chunk_index, self::WIDTH);
-        $y = floor($chunk_index / self::WIDTH);
-        return [$x + $this->base_coord[0], $y + $this->base_coord[1]];
+    public static function encode_nbt($nbt, $compress = 'zlib') {
+        $fp = fopen('php://memory', 'wb+');
+        $nbt->save($fp);
+        $size = ftell($fp);
+        rewind($fp);
+        $data = fread($fp, $size);
+        fclose($fp);
+
+        if ($compress === 'zlib') {
+            $zip_data = zlib_encode($data, ZLIB_ENCODING_DEFLATE);
+        }
+        elseif ($compress === 'gzip') {
+            $zip_data = gzencode($data);
+        }
+
+        return $zip_data;
     }
 
     public static function decode_nbt($data, $compress = 'zlib') {
@@ -73,6 +85,12 @@ class Region {
         fclose($fp);
 
         return $nbt;
+    }
+
+    public function get_chunk_coord($chunk_index) {
+        $x = MCTool\App::mod($chunk_index, self::WIDTH);
+        $y = floor($chunk_index / self::WIDTH);
+        return [$x + $this->base_coord[0], $y + $this->base_coord[1]];
     }
 
     public function __construct($path, $is_new = false) {
@@ -119,6 +137,11 @@ class Region {
         }
     }
 
+    /**
+     * @param int $index
+     * @return MCTool\MC\Chunk
+     * @throws Exception
+     */
     public function get_chunk($index) {
         if ($index < 0 || $index >= self::WIDTH * self::WIDTH) {
             throw new Exception('超出范围');
@@ -191,6 +214,86 @@ class Region {
     public function copy_chunk($index, $to, $ret) {
         $chunk = $this->get_chunk($index);
         $to->add_chunk($index, $chunk);
+    }
+
+    /**
+     * @param int $index
+     * @param array $task
+     * @param mixed $ret
+     */
+    public function reset_trade($index, $task, $ret) {
+        $do = isset($task['do']) ? $task['do'] : null;
+        if (!is_array($do) || empty($do)) {
+            return;
+        }
+
+        $chunk = $this->get_chunk($index);
+        if ($chunk === null) {
+            return;
+        }
+
+        $nbt = $chunk->decode_nbt();
+        $entities = NBT::get_node($nbt->root, ['', 'Level', 'Entities'], NBT::TAG_COMPOUND, NBT::TAG_LIST);
+        if ($entities === null || !isset($entities['value'])) {
+            return;
+        }
+
+        if (!isset($entities['type']) || $entities['type'] !== NBT::TAG_COMPOUND) {
+            return;
+        }
+
+        $list = $entities['value'];
+
+        $changed = false;
+
+        foreach ($list as $k => $v) {
+            $id = NBT::get_node($v, ['id'], NBT::TAG_COMPOUND, NBT::TAG_STRING);
+            if ($id === null || $id !== 'minecraft:villager') {
+                continue;
+            }
+
+            if (isset($task['name'])) {
+                $name = NBT::get_node($v, ['CustomName'], NBT::TAG_COMPOUND, NBT::TAG_STRING);
+                if ($name !== null) {
+                    $data = json_decode($name, true);
+                    $name = isset($data['text']) ? strval($data['text']) : null;
+                }
+                if ($name === null || $name !== $task['name']) {
+                    continue;
+                }
+            }
+
+            $recipes = NBT::get_node($v, ['Offers', 'Recipes'], NBT::TAG_COMPOUND, NBT::TAG_LIST);
+            if ($recipes === null || !isset($recipes['value'])) {
+                continue;
+            }
+
+            if (!isset($recipes['type']) || $recipes['type'] !== NBT::TAG_COMPOUND) {
+                return;
+            }
+
+            foreach ($recipes['value'] as $ind => $recipe) {
+                if (isset($do['max_uses'])) {
+                    NBT::set_node($recipe, ['maxUses'], NBT::TAG_COMPOUND, $do['max_uses']);
+                    $changed = true;
+                }
+                if (isset($do['uses'])) {
+                    NBT::set_node($recipe, ['uses'], NBT::TAG_COMPOUND, $do['uses']);
+                    $changed = true;
+                }
+                $recipes['value'][$ind] = $recipe;
+            }
+            if (!$changed) {
+                continue;
+            }
+            NBT::set_node($v, ['Offers', 'Recipes'], NBT::TAG_COMPOUND, $recipes);
+            $list[$k] = $v;
+        }
+        if ($changed) {
+            $entities['value'] = $list;
+            NBT::set_node($nbt->root, ['', 'Level', 'Entities'], NBT::TAG_COMPOUND, $entities);
+            $chunk->set_nbt($nbt);
+        }
     }
 
     /**
