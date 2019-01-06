@@ -20,10 +20,16 @@ class App {
             if ($path2{0} !== '/') {
                 $path = $path1 . $path2;
             }
+            else {
+                $path = $path2;
+            }
         }
         else {
             if (!preg_match('^[a-zA-Z]:.*$', $path2)) {
                 $path = $path1 . $path2;
+            }
+            else {
+                $path = $path2;
             }
         }
         return str_replace('\\', '/', $path);
@@ -38,7 +44,7 @@ class App {
     }
 
     public function __construct() {
-        
+
     }
 
     public function run($argc, $argv) {
