@@ -330,7 +330,6 @@ class NBT {
             case self::TAG_BYTE_ARRAY: // Byte array
                 return $this->writeType($fp, self::TAG_INT, count($value)) && is_int(fwrite($fp, call_user_func_array("pack", array_merge(["c" . count($value)], $value))));
             case self::TAG_STRING: // String
-                $value = utf8_encode($value);
                 return $this->writeType($fp, self::TAG_SHORT, strlen($value)) && is_int(fwrite($fp, $value));
             case self::TAG_LIST: // List
                 if (!($this->writeType($fp, self::TAG_BYTE, $value["type"]) && $this->writeType($fp, self::TAG_INT, count($value["value"])))) {
